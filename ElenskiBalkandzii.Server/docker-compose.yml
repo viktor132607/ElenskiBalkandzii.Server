@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: elenski-balkandzii-postgres
+    environment:
+      POSTGRES_DB: elenski_balkandzii
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - elenski_balkandzii_pgdata:/var/lib/postgresql/data
+
+volumes:
+  elenski_balkandzii_pgdata:
