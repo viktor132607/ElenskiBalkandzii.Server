@@ -13,12 +13,22 @@ string connectionString = builder.Configuration.GetConnectionString("DefaultConn
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString));
 
+string[] configuredOrigins = builder.Configuration
+    .GetSection("Cors:AllowedOrigins")
+    .Get<string[]>() ?? [];
+
+string[] allowedOrigins = configuredOrigins.Length > 0
+    ? configuredOrigins
+    : builder.Environment.IsDevelopment()
+        ? ["http://localhost:3000", "http://127.0.0.1:3000"]
+        : ["https://elenskibalkandzii-client.onrender.com"];
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Client", policy =>
     {
         policy
-            .WithOrigins("http://localhost:3000")
+            .WithOrigins(allowedOrigins)
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
