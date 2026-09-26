@@ -77,16 +77,54 @@ public sealed class SiteContentController(ApplicationDbContext db, AdminAccess a
                 !contact.TryGetProperty("hours", out JsonElement hours) || hours.ValueKind != JsonValueKind.Array ||
                 hours.GetArrayLength() != 7 || hours.EnumerateArray().Any(x => !HasStrings(x, "day", "hours"))) return false;
             JsonElement products = section.GetProperty("products");
-            if (!products.TryGetProperty("categories", out JsonElement categories) || categories.ValueKind != JsonValueKind.Array || categories.GetArrayLength() != 3) return false;
-            foreach (JsonElement category in categories.EnumerateArray())
+            if (!products.TryGetProperty("categories", out JsonElement categories) || !ValidCategories(categories)) return false;
+        }
+        JsonElement bgCategories = root.GetProperty("bg").GetProperty("products").GetProperty("categories");
+        JsonElement enCategories = root.GetProperty("en").GetProperty("products").GetProperty("categories");
+        if (bgCategories.GetArrayLength() != enCategories.GetArrayLength()) return false;
+        for (int i = 0; i < bgCategories.GetArrayLength(); i++)
+        {
+            JsonElement bgCategory = bgCategories[i];
+            JsonElement enCategory = enCategories[i];
+            if (bgCategory.GetProperty("id").GetString() != enCategory.GetProperty("id").GetString()) return false;
+            JsonElement bgItems = bgCategory.GetProperty("items");
+            JsonElement enItems = enCategory.GetProperty("items");
+            if (bgItems.GetArrayLength() != enItems.GetArrayLength()) return false;
+            for (int j = 0; j < bgItems.GetArrayLength(); j++)
+                if (bgItems[j].GetProperty("id").GetString() != enItems[j].GetProperty("id").GetString()) return false;
+        }
+        return true;
+    }
+
+    private static bool ValidCategories(JsonElement categories)
+    {
+        if (categories.ValueKind != JsonValueKind.Array || categories.GetArrayLength() > 24) return false;
+        var categoryIds = new HashSet<string>();
+        foreach (JsonElement category in categories.EnumerateArray())
+        {
+            if (!HasStrings(category, "id", "title", "description", "image") ||
+                !ValidId(category.GetProperty("id").GetString()!) ||
+                !categoryIds.Add(category.GetProperty("id").GetString()!) ||
+                !ValidImage(category.GetProperty("image").GetString()!) ||
+                !category.TryGetProperty("visible", out JsonElement visible) || !IsBoolean(visible) ||
+                !category.TryGetProperty("items", out JsonElement items) || items.ValueKind != JsonValueKind.Array || items.GetArrayLength() > 40) return false;
+            var productIds = new HashSet<string>();
+            foreach (JsonElement product in items.EnumerateArray())
             {
-                if (!HasStrings(category, "title") ||
-                    !category.TryGetProperty("items", out JsonElement items) || items.ValueKind != JsonValueKind.Array || items.GetArrayLength() > 40 ||
-                    items.EnumerateArray().Any(x => x.ValueKind != JsonValueKind.String || x.GetString()!.Length > 5000)) return false;
+                if (!HasStrings(product, "id", "title", "description", "image") ||
+                    !ValidId(product.GetProperty("id").GetString()!) ||
+                    !productIds.Add(product.GetProperty("id").GetString()!) ||
+                    !ValidImage(product.GetProperty("image").GetString()!) ||
+                    !product.TryGetProperty("visible", out JsonElement productVisible) || !IsBoolean(productVisible)) return false;
             }
         }
         return true;
     }
+
+    private static bool IsBoolean(JsonElement value) => value.ValueKind is JsonValueKind.True or JsonValueKind.False;
+    private static bool ValidId(string id) => id.Length is > 0 and <= 90 && id.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_');
+    private static bool ValidImage(string value) => value.Length == 0 || value.StartsWith("/api/images/", StringComparison.Ordinal) ||
+        value.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
 
     private static bool HasStrings(JsonElement element, params string[] names) =>
         element.ValueKind == JsonValueKind.Object && names.All(name =>
