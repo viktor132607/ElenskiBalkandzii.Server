@@ -62,6 +62,12 @@ public sealed class SiteContentController(ApplicationDbContext db, AdminAccess a
                   path.StartsWith("/elenski-balkandzhii-", StringComparison.Ordinal) ||
                   path.StartsWith("https://", StringComparison.OrdinalIgnoreCase))) return false;
         }
+        if (root.TryGetProperty("mediaPlacements", out JsonElement mediaPlacements))
+        {
+            if (mediaPlacements.ValueKind != JsonValueKind.Object) return false;
+            foreach (JsonProperty property in mediaPlacements.EnumerateObject())
+                if (property.Name is not ("logo" or "store" or "products" or "about") || !ValidPlacement(property.Value)) return false;
+        }
         foreach (string locale in new[] { "bg", "en" })
         {
             if (!root.TryGetProperty(locale, out JsonElement section) || section.ValueKind != JsonValueKind.Object) return false;
@@ -143,6 +149,7 @@ public sealed class SiteContentController(ApplicationDbContext db, AdminAccess a
                 !ValidImage(category.GetProperty("image").GetString()!) ||
                 !category.TryGetProperty("visible", out JsonElement visible) || !IsBoolean(visible) ||
                 !category.TryGetProperty("items", out JsonElement items) || items.ValueKind != JsonValueKind.Array || items.GetArrayLength() > 40) return false;
+            if (category.TryGetProperty("imagePlacement", out JsonElement categoryPlacement) && !ValidPlacement(categoryPlacement)) return false;
             var productIds = new HashSet<string>();
             foreach (JsonElement product in items.EnumerateArray())
             {
@@ -151,12 +158,23 @@ public sealed class SiteContentController(ApplicationDbContext db, AdminAccess a
                     !productIds.Add(product.GetProperty("id").GetString()!) ||
                     !ValidImage(product.GetProperty("image").GetString()!) ||
                     !product.TryGetProperty("visible", out JsonElement productVisible) || !IsBoolean(productVisible)) return false;
+                if (product.TryGetProperty("imagePlacement", out JsonElement productPlacement) && !ValidPlacement(productPlacement)) return false;
             }
         }
         return true;
     }
 
     private static bool IsBoolean(JsonElement value) => value.ValueKind is JsonValueKind.True or JsonValueKind.False;
+    private static bool ValidPlacement(JsonElement placement)
+    {
+        if (placement.ValueKind != JsonValueKind.Object || !placement.TryGetProperty("fit", out JsonElement fit) ||
+            fit.ValueKind != JsonValueKind.String || fit.GetString() is not ("cover" or "contain")) return false;
+        foreach (string key in new[] { "x", "y" })
+            if (!placement.TryGetProperty(key, out JsonElement coordinate) || coordinate.ValueKind != JsonValueKind.Number ||
+                !coordinate.TryGetDouble(out double value) || !double.IsFinite(value) || value < 0 || value > 100) return false;
+        return !placement.TryGetProperty("zoom", out JsonElement zoom) ||
+            zoom.ValueKind == JsonValueKind.Number && zoom.TryGetDouble(out double scale) && double.IsFinite(scale) && scale is >= 1 and <= 3;
+    }
     private static bool ValidId(string id) => id.Length is > 0 and <= 90 && id.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_');
     private static bool ValidImage(string value) => value.Length == 0 || value.StartsWith("/api/images/", StringComparison.Ordinal) ||
         value.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
