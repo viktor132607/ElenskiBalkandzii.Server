@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Globalization;
 using ElenskiBalkandzii.Server.API;
 using ElenskiBalkandzii.Server.Data;
 using Microsoft.AspNetCore.Mvc;
@@ -75,7 +76,9 @@ public sealed class SiteContentController(ApplicationDbContext db, AdminAccess a
             JsonElement contact = section.GetProperty("contact");
             if (!HasStrings(contact, "heading", "address", "phone", "note") ||
                 !contact.TryGetProperty("hours", out JsonElement hours) || hours.ValueKind != JsonValueKind.Array ||
-                hours.GetArrayLength() != 7 || hours.EnumerateArray().Any(x => !HasStrings(x, "day", "hours"))) return false;
+                hours.GetArrayLength() != 7 || hours.EnumerateArray().Any(x => !HasStrings(x, "day", "hours")) ||
+                !ValidOptionalString(contact, "phone2") || !ValidOptionalString(contact, "email") ||
+                !ValidSpecialHours(contact)) return false;
             JsonElement products = section.GetProperty("products");
             if (!products.TryGetProperty("categories", out JsonElement categories) || !ValidCategories(categories)) return false;
         }
@@ -92,6 +95,38 @@ public sealed class SiteContentController(ApplicationDbContext db, AdminAccess a
             if (bgItems.GetArrayLength() != enItems.GetArrayLength()) return false;
             for (int j = 0; j < bgItems.GetArrayLength(); j++)
                 if (bgItems[j].GetProperty("id").GetString() != enItems[j].GetProperty("id").GetString()) return false;
+        }
+        JsonElement bgContact = root.GetProperty("bg").GetProperty("contact");
+        JsonElement enContact = root.GetProperty("en").GetProperty("contact");
+        int bgCount = bgContact.TryGetProperty("specialHours", out JsonElement bgDates) ? bgDates.GetArrayLength() : 0;
+        int enCount = enContact.TryGetProperty("specialHours", out JsonElement enDates) ? enDates.GetArrayLength() : 0;
+        if (bgCount != enCount) return false;
+        for (int i = 0; i < bgCount; i++)
+        {
+            if (bgDates[i].GetProperty("id").GetString() != enDates[i].GetProperty("id").GetString() ||
+                bgDates[i].GetProperty("date").GetString() != enDates[i].GetProperty("date").GetString()) return false;
+        }
+        return true;
+    }
+
+    private static bool ValidOptionalString(JsonElement element, string name) =>
+        !element.TryGetProperty(name, out JsonElement value) || value.ValueKind == JsonValueKind.String && value.GetString()!.Length <= 5000;
+
+    private static bool ValidSpecialHours(JsonElement contact)
+    {
+        if (!contact.TryGetProperty("specialHours", out JsonElement rows)) return true;
+        if (rows.ValueKind != JsonValueKind.Array || rows.GetArrayLength() > 30) return false;
+        var ids = new HashSet<string>();
+        var dates = new HashSet<string>();
+        foreach (JsonElement row in rows.EnumerateArray())
+        {
+            if (!HasStrings(row, "id", "date", "label", "hours")) return false;
+            string id = row.GetProperty("id").GetString()!;
+            string date = row.GetProperty("date").GetString()!;
+            if (!ValidId(id) || !ids.Add(id) || !dates.Add(date) ||
+                !DateOnly.TryParseExact(date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _) ||
+                string.IsNullOrWhiteSpace(row.GetProperty("label").GetString()) ||
+                string.IsNullOrWhiteSpace(row.GetProperty("hours").GetString())) return false;
         }
         return true;
     }
